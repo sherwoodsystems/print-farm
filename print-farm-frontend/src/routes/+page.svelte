@@ -8,7 +8,7 @@
 		align: 'center',
 		textAlign: 'center',
 		fontSize: '12pt',
-		dryRun: true
+		dryRun: false
 	};
 
 	let result: unknown = null;
@@ -38,82 +38,102 @@
 	}
 </script>
 
-<h1>Print Farm - Generate Label (no print)</h1>
+<div class="max-w-3xl mx-auto p-6">
+	<h1 class="text-2xl font-semibold mb-6">Print Farm - Generate Label (no print)</h1>
 
-<form onsubmit={submitGenerate}>
-	<fieldset>
-		<legend>Target</legend>
-		<label>
-			Printer
-			<select bind:value={form.printer}>
-				<option value="small">Small (1x3)</option>
-				<option value="medium">Medium (2x4)</option>
-				<option value="large">Large (4x6)</option>
-			</select>
-		</label>
-	</fieldset>
+	<form onsubmit={submitGenerate} class="space-y-6">
+		<fieldset class="border rounded-md p-4">
+			<legend class="text-sm font-medium px-2">Target</legend>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Printer</span>
+					<select bind:value={form.printer} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
+						<option value="small">Small (1x3)</option>
+						<option value="medium">Medium (2x4)</option>
+						<option value="large">Large (4x6)</option>
+					</select>
+				</label>
+			</div>
+		</fieldset>
 
-	<fieldset>
-		<legend>Label</legend>
-		<label>
-			Size
-			<select bind:value={form.labelSize}>
-				<option value="1x3">1x3</option>
-				<option value="2x4">2x4</option>
-				<option value="4x6">4x6</option>
-			</select>
-		</label>
-		<label>
-			Template
-			<select bind:value={form.template}>
-				<option value="simple">Simple</option>
-				<option value="product">Product</option>
-				<option value="shipping">Shipping</option>
-			</select>
-		</label>
-		<label>
-			Copies
-			<input type="number" min="1" bind:value={form.copies} />
-		</label>
-		<label>
-			Dry run (do not call remote)
-			<input type="checkbox" bind:checked={form.dryRun} />
-		</label>
-	</fieldset>
+		<fieldset class="border rounded-md p-4">
+			<legend class="text-sm font-medium px-2">Label</legend>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Size</span>
+					<select bind:value={form.labelSize} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
+						<option value="1x3">1x3</option>
+						<option value="2x4">2x4</option>
+						<option value="4x6">4x6</option>
+					</select>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Template</span>
+					<select bind:value={form.template} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
+						<option value="simple">Simple</option>
+						<option value="product">Product</option>
+						<option value="shipping">Shipping</option>
+					</select>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Copies</span>
+					<input type="number" min="1" bind:value={form.copies} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500" />
+				</label>
+				<label class="flex items-center gap-2">
+					<input type="checkbox" bind:checked={form.dryRun} class="rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500" />
+					<span class="text-sm text-gray-600">Dry run (do not call remote)</span>
+				</label>
+			</div>
+		</fieldset>
 
-	<fieldset>
-		<legend>Simple template data</legend>
-		<label>
-			Content
-			<textarea rows="4" bind:value={form.content}></textarea>
-		</label>
-		<div>
-			<label>Align
-				<select bind:value={form.align}>
-					<option value="start">start</option>
-					<option value="center">center</option>
-					<option value="end">end</option>
-				</select>
-			</label>
-			<label>Text Align
-				<select bind:value={form.textAlign}>
-					<option value="left">left</option>
-					<option value="center">center</option>
-					<option value="right">right</option>
-				</select>
-			</label>
-			<label>Font Size
-				<input type="text" bind:value={form.fontSize} placeholder="e.g., 12pt" />
-			</label>
+		<fieldset class="border rounded-md p-4">
+			<legend class="text-sm font-medium px-2">Simple template data</legend>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+				<label class="flex flex-col gap-1 sm:col-span-2">
+					<span class="text-sm text-gray-600">Content</span>
+					<textarea rows="3" bind:value={form.content} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500"></textarea>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Align</span>
+					<select bind:value={form.align} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
+						<option value="start">start</option>
+						<option value="center">center</option>
+						<option value="end">end</option>
+					</select>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Text Align</span>
+					<select bind:value={form.textAlign} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
+						<option value="left">left</option>
+						<option value="center">center</option>
+						<option value="right">right</option>
+					</select>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span class="text-sm text-gray-600">Font Size</span>
+					<input type="text" bind:value={form.fontSize} placeholder="e.g., 12pt" class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500" />
+				</label>
+			</div>
+		</fieldset>
+
+		<div class="pt-2">
+			<button type="submit" class="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+				Generate PDF
+			</button>
 		</div>
-	</fieldset>
+	</form>
 
-	<button type="submit">Generate PDF</button>
-</form>
-
-{#if result}
-	<h2>Response</h2>
-	<pre>{JSON.stringify(result, null, 2)}</pre>
-{/if}
+	{#if result}
+		<div class="mt-8 space-y-3">
+			<h2 class="text-lg font-semibold">Response</h2>
+			{#if (result as any)?.url}
+				<div class="border rounded">
+					<iframe src={(result as any).url} class="w-full" style="height: 480px;" title="Preview"></iframe>
+				</div>
+			{/if}
+			<pre class="bg-gray-100 p-3 rounded overflow-auto text-sm">{JSON.stringify(result, null, 2)}</pre>
+		</div>
+	{/if}
+</div>
 
 

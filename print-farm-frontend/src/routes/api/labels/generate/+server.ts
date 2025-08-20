@@ -1,97 +1,92 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { PRINTER_SMALL_URL, PRINTER_MEDIUM_URL, PRINTER_LARGE_URL } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 type LabelSize = '1x3' | '2x4' | '4x6';
 type TargetPrinter = 'small' | 'medium' | 'large' | 'url';
 
 interface GenerateRequestBody {
-\ttemplate?: 'simple' | 'product' | 'shipping';
-\tdata?: Record<string, unknown>;
-\tlabelSize?: LabelSize;
-\ttarget?: TargetPrinter;
-\tcopies?: number;
-\turl?: string; // when target === 'url'
-\tdryRun?: boolean; // if true, do not call remote service; return the payload that would be sent
+	template?: 'simple' | 'product' | 'shipping';
+	data?: Record<string, unknown>;
+	labelSize?: LabelSize;
+	target?: TargetPrinter;
+	copies?: number;
+	url?: string;
+	dryRun?: boolean;
 }
 
 const PRINTERS: Record<'small' | 'medium' | 'large', string> = {
-\tsmall: PRINTER_SMALL_URL || 'http://100.105.161.92:3001',
-\tmedium: PRINTER_MEDIUM_URL || 'http://100.105.161.92:3002',
-\tlarge: PRINTER_LARGE_URL || 'http://100.105.161.92:3003'
+	small: env.PRINTER_SMALL_URL || 'http://100.105.161.92:3001',
+	medium: env.PRINTER_MEDIUM_URL || 'http://100.105.161.92:3002',
+	large: env.PRINTER_LARGE_URL || 'http://100.105.161.92:3003'
 };
 
 export const POST: RequestHandler = async ({ request, fetch }) => {
-\tconst body = (await request.json()) as GenerateRequestBody;
+	const body = (await request.json()) as GenerateRequestBody;
 
-\tconst template = body.template ?? 'simple';
-\tconst data = body.data ?? {};
-\tconst labelSize: LabelSize = (body.labelSize as LabelSize) ?? '2x4';
-\tconst copies = Number.isFinite(body.copies) && (body.copies as number) > 0 ? (body.copies as number) : 1;
-\tconst target: TargetPrinter = body.target ?? 'small';
-\tconst dryRun = Boolean(body.dryRun);
+	const template = body.template ?? 'simple';
+	const data = body.data ?? {};
+	const labelSize: LabelSize = (body.labelSize as LabelSize) ?? '2x4';
+	const copies = Number.isFinite(body.copies) && (body.copies as number) > 0 ? (body.copies as number) : 1;
+	const target: TargetPrinter = body.target ?? 'small';
+	const dryRun = Boolean(body.dryRun);
 
-\tlet baseUrl: string | undefined;
-\tif (target === 'url') {
-\t\tbaseUrl = body.url;
-\t} else {
-\t\tbaseUrl = PRINTERS[target];
-\t}
+	let baseUrl: string | undefined;
+	if (target === 'url') {
+		baseUrl = body.url;
+	} else {
+		baseUrl = PRINTERS[target];
+	}
 
-\tif (!baseUrl) {
-\t\treturn new Response(
-\t\t\tJSON.stringify({ error: 'No printer URL configured for target', target }),
-\t\t\t{ status: 400, headers: { 'content-type': 'application/json' } }
-\t\t);
-\t}
+	if (!baseUrl) {
+		return new Response(
+			JSON.stringify({ error: 'No printer URL configured for target', target }),
+			{ status: 400, headers: { 'content-type': 'application/json' } }
+		);
+	}
 
-\t// Normalized payload for the Windows generator service
-\tconst generatorPayload = {
-\t\t// service on Windows container should expose POST /generate to only create PDF
-\t\ttemplate,
-\t\tdata,
-\t\tlabelSize,
-\t\tcopies
-\t};
+	const generatorPayload = { template, data, labelSize, copies };
 
-\tif (dryRun) {
-\t\treturn new Response(
-\t\t\tJSON.stringify({ ok: true, dryRun: true, target, url: `${baseUrl}/generate`, payload: generatorPayload }),
-\t\t\t{ status: 200, headers: { 'content-type': 'application/json' } }
-\t\t);
-\t}
+	if (dryRun) {
+		return new Response(
+			JSON.stringify({ ok: true, dryRun: true, target, url: `${baseUrl}/generate`, payload: generatorPayload }),
+			{ status: 200, headers: { 'content-type': 'application/json' } }
+		);
+	}
 
-\ttry {
-\t\tconst res = await fetch(`${baseUrl}/generate`, {
-\t\t\tmethod: 'POST',
-\t\t\theaders: { 'content-type': 'application/json' },
-\t\t\tbody: JSON.stringify(generatorPayload)
-\t\t});
+	try {
+		const res = await fetch(`${baseUrl}/generate`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(generatorPayload)
+		});
 
-\t\tconst text = await res.text();
-\t\tlet json: unknown;
-\t\ttry {
-\t\t\tjson = JSON.parse(text);
-\t\t} catch {
-\t\t\tjson = { raw: text };
-\t\t}
+		const text = await res.text();
+		let json: unknown;
+		try {
+			json = JSON.parse(text);
+		} catch {
+			json = { raw: text };
+		}
 
-\t\tif (!res.ok) {
-\t\t\treturn new Response(
-\t\t\t\tJSON.stringify({ error: 'Remote service error', status: res.status, body: json }),
-\t\t\t\t{ status: 502, headers: { 'content-type': 'application/json' } }
-\t\t\t);
-\t\t}
+		if (!res.ok) {
+			return new Response(
+				JSON.stringify({ error: 'Remote service error', status: res.status, body: json }),
+				{ status: 502, headers: { 'content-type': 'application/json' } }
+			);
+		}
 
-\t\treturn new Response(
-\t\t\tJSON.stringify({ ok: true, target, response: json }),
-\t\t\t{ status: 200, headers: { 'content-type': 'application/json' } }
-\t\t);
-\t} catch (error) {
-\t\treturn new Response(
-\t\t\tJSON.stringify({ error: 'Failed to reach generator service', details: (error as Error).message }),
-\t\t\t{ status: 500, headers: { 'content-type': 'application/json' } }
-\t\t);
-\t}
+		// Forward the remote JSON response directly so the client gets the same
+		// structure as when calling the generator service via curl.
+		return new Response(
+			JSON.stringify(json),
+			{ status: 200, headers: { 'content-type': 'application/json' } }
+		);
+	} catch (error) {
+		return new Response(
+			JSON.stringify({ error: 'Failed to reach generator service', details: (error as Error).message }),
+			{ status: 500, headers: { 'content-type': 'application/json' } }
+		);
+	}
 };
 
 
