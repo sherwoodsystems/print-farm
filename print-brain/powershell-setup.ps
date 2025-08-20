@@ -1,0 +1,23 @@
+# Install Chocolatey, Python, and libs
+Set-ExecutionPolicy Bypass -Scope Process -Force
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+iwr https://community.chocolatey.org/install.ps1 -UseBasicParsing | iex
+
+choco install -y python3
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')
+
+python -m pip install --upgrade pip
+pip install flask flask-cors reportlab
+
+# Create app directory and run
+mkdir C:\print-brain -Force | Out-Null
+Set-Content -Path C:\print-brain\app.py -Value (Get-Content -Raw .\app.py) # If you copied app.py to current dir; otherwise paste file manually
+
+# Configure
+$env:PORT = "3001"           # use 3002 / 3003 on the other two
+$env:OUTPUT_DIR = "C:\labels"
+$env:LABEL_SIZE = "2x4"      # default; router can override
+
+mkdir $env:OUTPUT_DIR -Force | Out-Null
+cd C:\print-brain
+python app.py
