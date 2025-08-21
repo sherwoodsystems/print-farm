@@ -24,6 +24,9 @@ except ImportError:
 PORT = int(os.getenv("PORT", "3001"))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", r"C:\labels")  # change if you prefer
 DEFAULT_LABEL_SIZE = os.getenv("LABEL_SIZE", "3x1")  # '3x1' | '102x51mm' | '4x6.25'
+# Sumatra settings (override via env). These strongly hint the driver to print wide labels correctly.
+SUMATRA_PRINT_SETTINGS = os.getenv("SUMATRA_PRINT_SETTINGS", "landscape,fit")
+SUMATRA_PRINTER = os.getenv("SUMATRA_PRINTER")  # optional explicit printer name
 
 # Actual label sizes for your printers (all horizontal/landscape orientation)
 LABEL_SIZES = {
@@ -196,6 +199,10 @@ def print_pdf_with_sumatra(pdf_path, copies=1, printer_name=None):
     if not exe:
         return False, "SumatraPDF not found"
 
+    # Use explicit printer from env if provided
+    if SUMATRA_PRINTER:
+        printer_name = SUMATRA_PRINTER
+
     # Build command. Prefer explicit printer if provided; otherwise default.
     args = [exe]
     if printer_name:
@@ -205,7 +212,11 @@ def print_pdf_with_sumatra(pdf_path, copies=1, printer_name=None):
 
     # Copies (Sumatra supports copies via -print-settings "copies=N")
     copies = max(int(copies or 1), 1)
-    args += ["-silent", "-exit-on-print", "-print-settings", f"copies={copies}", pdf_path]
+    # Merge copies with default/override settings
+    settings = f"copies={copies}"
+    if SUMATRA_PRINT_SETTINGS:
+        settings = settings + "," + SUMATRA_PRINT_SETTINGS
+    args += ["-silent", "-exit-on-print", "-print-settings", settings, pdf_path]
 
     try:
         completed = subprocess.run(args, capture_output=True, text=True, timeout=30)
@@ -252,7 +263,12 @@ def get_printer_info():
         "printingAvailable": WINDOWS_PRINTING_AVAILABLE,
         "defaultPrinter": printer,
         "supportedSizes": list(LABEL_SIZES.keys()),
-        "sizeDescriptions": LABEL_SIZE_NAMES
+        "sizeDescriptions": LABEL_SIZE_NAMES,
+        "sumatra": {
+            "found": bool(find_sumatra_exe()),
+            "settings": SUMATRA_PRINT_SETTINGS,
+            "printerOverride": SUMATRA_PRINTER or None
+        }
     })
 
 @app.post("/generate")
@@ -336,6 +352,45 @@ def generate():
         response["print"] = print_result
     
     return jsonify(response), 200
+
+@app.post("/test-print")
+def test_print():
+    """Generate a simple test label and print it using current settings."""
+    payload = request.get_json(silent=True) or {}
+    label_size = payload.get("labelSize", DEFAULT_LABEL_SIZE)
+    copies = int(payload.get("copies", 1))
+
+    if label_size not in LABEL_SIZES:
+        return jsonify({"error": f"Invalid labelSize. Use one of {list(LABEL_SIZES.keys())}"}), 400
+
+    page_size = LABEL_SIZES[label_size]
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    filename = f"test_{label_size}_{datetime.utcnow().strftime('%Y%m%d-%H%M%S-%f')}.pdf"
+    filepath = os.path.join(OUTPUT_DIR, filename)
+
+    make_pdf_big_bold_landscape(
+        path=filepath,
+        page_size_portrait=page_size,
+        content=f"TEST {label_size} {ts}"
+    )
+
+    printer_name = get_default_printer() if WINDOWS_PRINTING_AVAILABLE else None
+    success, message = print_pdf_with_sumatra(filepath, copies=copies, printer_name=printer_name)
+
+    return jsonify({
+        "ok": success,
+        "message": message,
+        "file": filename,
+        "path": filepath,
+        "url": f"http://{request.host}/files/{filename}",
+        "print": {
+            "success": success,
+            "method": "sumatra" if success else "sumatra?",
+            "message": message,
+            "printer": printer_name,
+            "settings": SUMATRA_PRINT_SETTINGS
+        }
+    }), (200 if success else 500)
 
 if __name__ == "__main__":
     # Bind to all interfaces so Tailscale/LAN can reach it
