@@ -1,6 +1,8 @@
 # app.py
 import os
 import base64
+import sys
+import tempfile
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -8,14 +10,31 @@ from reportlab.lib.pagesizes import inch
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 
+# Windows printing support
+try:
+    import win32print
+    import win32api
+    WINDOWS_PRINTING_AVAILABLE = True
+except ImportError:
+    WINDOWS_PRINTING_AVAILABLE = False
+    print("Warning: Windows printing not available. Install pywin32 to enable printing.")
+
 PORT = int(os.getenv("PORT", "3001"))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", r"C:\labels")  # change if you prefer
-DEFAULT_LABEL_SIZE = os.getenv("LABEL_SIZE", "2x4")  # '1x3' | '2x4' | '4x6'
+DEFAULT_LABEL_SIZE = os.getenv("LABEL_SIZE", "3x1")  # '3x1' | '102x51mm' | '4x6.25'
 
+# Actual label sizes for your printers (all horizontal/landscape orientation)
 LABEL_SIZES = {
-    "1x3": (1.0 * inch, 3.0 * inch),
-    "2x4": (2.0 * inch, 4.0 * inch),
-    "4x6": (4.0 * inch, 6.0 * inch),
+    "3x1": (3.0 * inch, 1.0 * inch),           # Small green labels
+    "102x51mm": (4.02 * inch, 2.01 * inch),    # Medium white labels (102mm x 51mm)
+    "4x6.25": (4.0 * inch, 6.25 * inch),       # Standard shipping labels (159mm x 102mm)
+}
+
+# Map label sizes to descriptive names
+LABEL_SIZE_NAMES = {
+    "3x1": "Small Green (3\" x 1\")",
+    "102x51mm": "Medium White (102mm x 51mm)", 
+    "4x6.25": "Large Shipping (4\" x 6.25\")"
 }
 
 app = Flask(__name__)
@@ -58,15 +77,67 @@ def make_pdf_big_bold_landscape(path, page_size_portrait, content):
     c.showPage()
     c.save()
 
+def get_default_printer():
+    """Get the default Windows printer name."""
+    if not WINDOWS_PRINTING_AVAILABLE:
+        return None
+    try:
+        return win32print.GetDefaultPrinter()
+    except Exception as e:
+        print(f"Error getting default printer: {e}")
+        return None
+
+def print_pdf_to_default_printer(pdf_path, printer_name=None):
+    """Print a PDF file to the default Windows printer."""
+    if not WINDOWS_PRINTING_AVAILABLE:
+        return False, "Windows printing not available. Install pywin32."
+    
+    try:
+        if printer_name is None:
+            printer_name = get_default_printer()
+        
+        if not printer_name:
+            return False, "No default printer found"
+        
+        # Use Windows ShellExecute to print the PDF
+        # This requires a PDF viewer to be installed (like Adobe Reader or browser)
+        result = win32api.ShellExecute(
+            0,  # handle to parent window
+            "print",  # operation to perform
+            pdf_path,  # file to print
+            None,  # parameters
+            ".",  # default directory
+            0  # show command (0 = hide)
+        )
+        
+        if result > 32:  # ShellExecute returns > 32 on success
+            return True, f"Sent to printer: {printer_name}"
+        else:
+            return False, f"Failed to print (error code: {result})"
+            
+    except Exception as e:
+        return False, f"Print error: {str(e)}"
+
+def validate_label_size_for_printer(label_size):
+    """Check if the label size is valid for printing."""
+    # All defined label sizes are allowed for printing
+    return label_size in LABEL_SIZES
+
 @app.get("/")
 def root():
+    printer = get_default_printer() if WINDOWS_PRINTING_AVAILABLE else None
     return jsonify({
         "status": "running",
         "outputDir": OUTPUT_DIR,
         "defaultLabelSize": DEFAULT_LABEL_SIZE,
+        "printingAvailable": WINDOWS_PRINTING_AVAILABLE,
+        "defaultPrinter": printer,
+        "supportedSizes": list(LABEL_SIZES.keys()),
+        "sizeDescriptions": LABEL_SIZE_NAMES,
         "endpoints": {
-            "POST /generate": "Generate a PDF label (no printing)",
-            "GET /files/<name>": "Download a generated PDF"
+            "POST /generate": "Generate a PDF label (with optional printing)",
+            "GET /files/<name>": "Download a generated PDF",
+            "GET /printer": "Get default printer info"
         }
     })
 
@@ -74,13 +145,25 @@ def root():
 def get_file(filename: str):
     return send_from_directory(OUTPUT_DIR, filename, as_attachment=False)
 
+@app.get("/printer")
+def get_printer_info():
+    """Get information about the default printer."""
+    printer = get_default_printer() if WINDOWS_PRINTING_AVAILABLE else None
+    return jsonify({
+        "printingAvailable": WINDOWS_PRINTING_AVAILABLE,
+        "defaultPrinter": printer,
+        "supportedSizes": list(LABEL_SIZES.keys()),
+        "sizeDescriptions": LABEL_SIZE_NAMES
+    })
+
 @app.post("/generate")
 def generate():
     payload = request.get_json(silent=True) or {}
     template = payload.get("template", "simple")
     data = payload.get("data", {}) or {}
     label_size = payload.get("labelSize", DEFAULT_LABEL_SIZE)
-    copies = int(payload.get("copies", 1))  # ignored for now, no printing
+    copies = int(payload.get("copies", 1))
+    should_print = payload.get("print", False)  # New parameter to trigger printing
 
     if label_size not in LABEL_SIZES:
         return jsonify({"error": f"Invalid labelSize. Use one of {list(LABEL_SIZES.keys())}"}), 400
@@ -99,15 +182,43 @@ def generate():
         content=str(data.get("content", ""))
     )
 
+    # Handle printing if requested
+    print_result = None
+    if should_print:
+        if not validate_label_size_for_printer(label_size):
+            print_result = {
+                "success": False,
+                "message": f"Invalid label size for printing: {label_size}"
+            }
+        else:
+            # Print multiple copies if requested
+            for i in range(copies):
+                success, message = print_pdf_to_default_printer(filepath)
+                if not success and i == 0:  # Only report first failure
+                    print_result = {"success": False, "message": message}
+                    break
+            if print_result is None:
+                print_result = {
+                    "success": True,
+                    "message": f"Printed {copies} copies to default printer",
+                    "printer": get_default_printer()
+                }
+
     # Return metadata and a URL to view the file
-    return jsonify({
+    response = {
         "ok": True,
         "template": template,
         "labelSize": label_size,
         "file": filename,
         "path": filepath,
-        "url": f"http://{request.host}/files/{filename}"
-    }), 200
+        "url": f"http://{request.host}/files/{filename}",
+        "copies": copies
+    }
+    
+    if print_result:
+        response["print"] = print_result
+    
+    return jsonify(response), 200
 
 if __name__ == "__main__":
     # Bind to all interfaces so Tailscale/LAN can reach it

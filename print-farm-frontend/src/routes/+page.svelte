@@ -1,14 +1,15 @@
 <script lang="ts">
 	let form = {
 		printer: 'small',
-		labelSize: '2x4',
+		labelSize: '3x1',  // Default to small green
 		template: 'simple',
 		copies: 1,
 		content: 'Hello from Print Farm',
 		align: 'center',
 		textAlign: 'center',
 		fontSize: '12pt',
-		dryRun: false
+		dryRun: false,
+		print: false
 	};
 
 	let result: unknown = null;
@@ -17,10 +18,11 @@
 		event.preventDefault();
 		const payload = {
 			target: form.printer as 'small' | 'medium' | 'large',
-			labelSize: form.labelSize as '1x3' | '2x4' | '4x6',
+			labelSize: form.labelSize as '3x1' | '102x51mm' | '4x6.25',
 			template: form.template as 'simple' | 'product' | 'shipping',
 			copies: Number(form.copies) || 1,
 			dryRun: Boolean(form.dryRun),
+			print: Boolean(form.print),
 			data: {
 				content: form.content,
 				align: form.align,
@@ -48,9 +50,9 @@
 				<label class="flex flex-col gap-1">
 					<span class="text-sm text-gray-600">Printer</span>
 					<select bind:value={form.printer} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
-						<option value="small">Small (1x3)</option>
-						<option value="medium">Medium (2x4)</option>
-						<option value="large">Large (4x6)</option>
+						<option value="small">Small Green (3x1)</option>
+						<option value="medium">Medium White (102x51mm)</option>
+						<option value="large">Large Shipping (4x6.25)</option>
 					</select>
 				</label>
 			</div>
@@ -62,9 +64,9 @@
 				<label class="flex flex-col gap-1">
 					<span class="text-sm text-gray-600">Size</span>
 					<select bind:value={form.labelSize} class="rounded border-gray-300 focus:ring-2 focus:ring-blue-500">
-						<option value="1x3">1x3</option>
-						<option value="2x4">2x4</option>
-						<option value="4x6">4x6</option>
+						<option value="3x1">3" x 1" (Small Green)</option>
+						<option value="102x51mm">102mm x 51mm (Medium White)</option>
+						<option value="4x6.25">4" x 6.25" (Shipping Label)</option>
 					</select>
 				</label>
 				<label class="flex flex-col gap-1">
@@ -82,6 +84,10 @@
 				<label class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={form.dryRun} class="rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500" />
 					<span class="text-sm text-gray-600">Dry run (do not call remote)</span>
+				</label>
+				<label class="flex items-center gap-2">
+					<input type="checkbox" bind:checked={form.print} class="rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500" />
+					<span class="text-sm text-gray-600">Print to default printer</span>
 				</label>
 			</div>
 		</fieldset>
@@ -118,7 +124,7 @@
 
 		<div class="pt-2">
 			<button type="submit" class="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
-				Generate PDF
+				{form.print ? 'Generate & Print' : 'Generate PDF'}
 			</button>
 		</div>
 	</form>
