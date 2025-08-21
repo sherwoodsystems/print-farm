@@ -1,5 +1,7 @@
 # app.py
 import os
+import shutil
+import subprocess
 import base64
 import sys
 import tempfile
@@ -163,6 +165,58 @@ def print_pdf_to_default_printer(pdf_path, printer_name=None):
     except Exception as e:
         return False, f"Print error: {str(e)}"
 
+def find_sumatra_exe():
+    """Find SumatraPDF executable via env or common install paths."""
+    candidates = []
+    # Environment variable can directly specify the path
+    env_path = os.getenv("SUMATRA_PATH")
+    if env_path:
+        candidates.append(env_path)
+    # Common install locations
+    candidates.extend([
+        r"C:\\Program Files\\SumatraPDF\\SumatraPDF.exe",
+        r"C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe",
+    ])
+    # Local repo bin path (optional)
+    repo_bin = os.path.join(os.path.dirname(__file__), "bin", "SumatraPDF.exe")
+    candidates.append(repo_bin)
+
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    # Also try PATH lookup
+    path_lookup = shutil.which("SumatraPDF.exe")
+    if path_lookup:
+        return path_lookup
+    return None
+
+def print_pdf_with_sumatra(pdf_path, copies=1, printer_name=None):
+    """Print a PDF using SumatraPDF command-line if available."""
+    exe = find_sumatra_exe()
+    if not exe:
+        return False, "SumatraPDF not found"
+
+    # Build command. Prefer explicit printer if provided; otherwise default.
+    args = [exe]
+    if printer_name:
+        args += ["-print-to", printer_name]
+    else:
+        args += ["-print-to-default"]
+
+    # Copies (Sumatra supports copies via -print-settings "copies=N")
+    copies = max(int(copies or 1), 1)
+    args += ["-silent", "-exit-on-print", "-print-settings", f"copies={copies}", pdf_path]
+
+    try:
+        completed = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        if completed.returncode == 0:
+            return True, (f"Sent to printer via SumatraPDF ({'default' if not printer_name else printer_name}), "
+                          f"copies={copies}")
+        else:
+            return False, f"Sumatra print failed (code {completed.returncode}): {completed.stderr or completed.stdout}"
+    except Exception as e:
+        return False, f"Sumatra print error: {str(e)}"
+
 def validate_label_size_for_printer(label_size):
     """Check if the label size is valid for printing."""
     # All defined label sizes are allowed for printing
@@ -233,20 +287,38 @@ def generate():
         if not validate_label_size_for_printer(label_size):
             print_result = {
                 "success": False,
+                "method": "validation",
                 "message": f"Invalid label size for printing: {label_size}"
             }
         else:
-            # Print multiple copies if requested
-            for i in range(copies):
-                success, message = print_pdf_to_default_printer(filepath)
-                if not success and i == 0:  # Only report first failure
-                    print_result = {"success": False, "message": message}
-                    break
-            if print_result is None:
+            # Prefer SumatraPDF if available (does not require Adobe)
+            printer_name = get_default_printer() if WINDOWS_PRINTING_AVAILABLE else None
+            success, message = print_pdf_with_sumatra(filepath, copies=copies, printer_name=printer_name)
+            method_used = "sumatra" if success or "not found" not in message.lower() else "shell"
+
+            if not success and method_used == "shell":
+                # Fallback to Windows ShellExecute (requires association)
+                first_failure = None
+                for i in range(copies):
+                    ok, msg = print_pdf_to_default_printer(filepath)
+                    if not ok and first_failure is None:
+                        first_failure = msg
+                        break
+                if first_failure:
+                    print_result = {"success": False, "method": method_used, "message": first_failure}
+                else:
+                    print_result = {
+                        "success": True,
+                        "method": method_used,
+                        "message": f"Printed {copies} copies to default printer",
+                        "printer": printer_name
+                    }
+            else:
                 print_result = {
-                    "success": True,
-                    "message": f"Printed {copies} copies to default printer",
-                    "printer": get_default_printer()
+                    "success": success,
+                    "method": method_used,
+                    "message": message,
+                    "printer": printer_name,
                 }
 
     # Return metadata and a URL to view the file
@@ -260,7 +332,7 @@ def generate():
         "copies": copies
     }
     
-    if print_result:
+    if print_result is not None:
         response["print"] = print_result
     
     return jsonify(response), 200
