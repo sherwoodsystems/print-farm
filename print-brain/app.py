@@ -42,10 +42,33 @@ CORS(app)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+def _wrap_text_to_lines(text: str, font_name: str, font_size: float, max_width: float, max_lines: int = 3):
+    words = text.split()
+    if not words:
+        return [""], True
+
+    lines = [""]
+    for word in words:
+        candidate = word if lines[-1] == "" else lines[-1] + " " + word
+        width = pdfmetrics.stringWidth(candidate, font_name, font_size)
+        if width <= max_width:
+            lines[-1] = candidate
+        else:
+            # move to next line
+            if len(lines) + 1 > max_lines:
+                return lines, False
+            lines.append(word)
+
+    return lines, True
+
+
 def make_pdf_big_bold_landscape(path, page_size_portrait, content):
-    # Force landscape by swapping width/height
+    # Ensure landscape orientation regardless of how sizes are defined
     ph_w, ph_h = page_size_portrait
-    width, height = ph_h, ph_w
+    if ph_w < ph_h:
+        width, height = ph_h, ph_w
+    else:
+        width, height = ph_w, ph_h
 
     margin = 0.15 * inch
     avail_w = max(width - 2 * margin, 1)
@@ -56,23 +79,45 @@ def make_pdf_big_bold_landscape(path, page_size_portrait, content):
 
     text = (content or "").strip() or "LABEL"
 
-    # Compute font size to fit single line within box
-    # stringWidth scales linearly with font size
-    base_width = pdfmetrics.stringWidth(text, font_name, 1)
-    if base_width <= 0:
-        base_width = 1
+    # Binary search the largest font size that fits within width/height with up to 3 lines
+    min_size = 6.0
+    # Upper bound heuristic: ensure even the longest word can fit width-wise at size=hi
+    longest_word = max(text.split(), key=len) if text.split() else "LABEL"
+    lw_base = max(pdfmetrics.stringWidth(longest_word, font_name, 1), 1)
+    hi_by_width = avail_w / lw_base
+    hi_by_height = avail_h / 1.05  # 1.05 line height factor
+    max_size = max(min(hi_by_width, hi_by_height), min_size)
 
-    size_by_width = avail_w / base_width
-    # Height fudge: approximate that a line needs ~1.1x font size of vertical space
-    size_by_height = avail_h / 1.1
-    font_size = max(6, min(size_by_width, size_by_height))
+    best_size = min_size
+    best_lines = [text]
+    for _ in range(22):
+        mid = (min_size + max_size) / 2.0
+        # Wrap into at most 3 lines at this font size
+        lines, ok = _wrap_text_to_lines(text, font_name, mid, avail_w, max_lines=3)
+        if not ok:
+            # too big; doesn't fit width-wise into <=3 lines
+            max_size = mid
+            continue
+        # Check height
+        line_height = mid * 1.1
+        total_h = line_height * len(lines)
+        if total_h <= avail_h:
+            best_size = mid
+            best_lines = lines
+            min_size = mid
+        else:
+            max_size = mid
 
-    c.setFont(font_name, font_size)
-
-    # Draw centered
+    # Draw centered block
+    c.setFont(font_name, best_size)
+    line_height = best_size * 1.1
+    total_h = line_height * len(best_lines)
+    start_y = (height + total_h) / 2 - line_height * 0.75  # slight visual tweak
     x = width / 2
-    y = height / 2 - (font_size * 0.3)  # visual centering tweak
-    c.drawCentredString(x, y, text)
+    y = start_y
+    for line in best_lines:
+        c.drawCentredString(x, y, line)
+        y -= line_height
 
     c.showPage()
     c.save()
